@@ -1,4 +1,4 @@
-import type { DerivedTotals, LineItem } from "~shared/types.js";
+import type { DerivedTotals, LineItem } from "~shared/types";
 
 export function computeTotals(
   lineItems: LineItem[],

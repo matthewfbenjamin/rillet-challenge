@@ -146,7 +146,8 @@ rillet/
 
 ```typescript
 export type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Void";
-export type PaymentStatus = "Unsent" | "Open" | "Overdue" | "Paid" | "Voided";
+// Overdue is derived: never stored in DB; computed on read when dueDate < today && paymentStatus === "Open" or "Partial"
+export type PaymentStatus = "Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided";
 
 export interface LineItem {
   id: string;
@@ -176,6 +177,7 @@ export interface Invoice {
   issueDate: string;
   dueDate: string;
   paidDate?: string;
+  amountPaid?: number;
   memo: string;
   taxRate: number;
   discount: number;
@@ -235,13 +237,18 @@ export const CreateInvoiceSchema = z.object({
 export const UpdateInvoiceSchema = CreateInvoiceSchema.partial();
 
 export const TransitionSchema = z.object({
-  action: z.enum(["send", "recordPayment", "void"]),
+  action: z.enum(["send", "recordPayment", "recordPartialPayment", "void"]),
   paidDate: z.string().optional(),
+  amountPaid: z.number().positive().optional(),
   actor: z.string().default("Maya Chen"),
-}).refine(
-  (d) => d.action !== "recordPayment" || !!d.paidDate,
-  { message: "paidDate required for recordPayment", path: ["paidDate"] }
-);
+}).superRefine((d, ctx) => {
+  if (d.action === "recordPayment" && !d.paidDate) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "paidDate required for recordPayment", path: ["paidDate"] });
+  }
+  if (d.action === "recordPartialPayment" && d.amountPaid === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "amountPaid required for recordPartialPayment", path: ["amountPaid"] });
+  }
+});
 
 export const AssistantParseRequestSchema = z.object({
   text: z.string().min(1).max(4000),
@@ -323,6 +330,8 @@ CREATE TABLE IF NOT EXISTS invoices (
   issueDate       TEXT NOT NULL,
   dueDate         TEXT NOT NULL,
   paidDate        TEXT,
+  amountPaid      REAL,                                -- nullable; set when recordPartialPayment action is applied
+  -- Overdue is never stored; computed on read when dueDate < today and paymentStatus is Open or Partial
   memo            TEXT NOT NULL DEFAULT '',
   taxRate         REAL NOT NULL DEFAULT 0,
   discount        REAL NOT NULL DEFAULT 0,
@@ -346,10 +355,12 @@ listInvoices(includeVoided: boolean): InvoiceListItem[]
 getInvoiceById(id: string): Invoice | null
 createInvoice(data: CreateInvoiceInput, actor: string): Invoice
 updateInvoice(id: string, data: UpdateInvoiceInput, actor: string): Invoice
-transitionInvoice(id: string, action: TransitionAction, actor: string, paidDate?: string): Invoice
+transitionInvoice(id: string, action: TransitionAction, actor: string, paidDate?: string, amountPaid?: number): Invoice
 voidInvoice(id: string, actor: string): Invoice
 generateInvoiceNumber(): string
 ```
+
+**Overdue derivation:** `listInvoices` and `getInvoiceById` compute `Overdue` on read. After fetching rows from the DB, if `dueDate < today && paymentStatus === "Open"`, the service sets `paymentStatus` to `"Overdue"` in the returned object before returning it. `"Overdue"` is never written to the DB column.
 
 Activity is always appended, never replaced. On every mutation, the service reads the existing `activity` array, pushes a new `ActivityEvent` (nanoid id, current ISO timestamp, actor, descriptive action string), and writes back the full JSON column.
 
@@ -622,9 +633,10 @@ Does not reserve the number.
 **Body:**
 ```typescript
 {
-  action: "send" | "recordPayment" | "void";
-  paidDate?: string; // required for recordPayment
-  actor?: string;    // defaults to DEFAULT_ACTOR
+  action: "send" | "recordPayment" | "recordPartialPayment" | "void";
+  paidDate?: string;    // required for recordPayment
+  amountPaid?: number;  // required for recordPartialPayment
+  actor?: string;       // defaults to DEFAULT_ACTOR
 }
 ```
 
@@ -635,6 +647,7 @@ Does not reserve the number.
 | Draft | send | Sent | Open | "Sent invoice to customer" |
 | Sent | recordPayment | Paid | Paid | "Recorded payment" |
 | Draft or Sent | void | Void | Voided | "Voided invoice" |
+| Sent or Partial (payment) | recordPartialPayment | Sent | Partial | "Recorded partial payment of $X" |
 
 **Response 200:** `{ data: Invoice }`
 **Response 409:** `{ error: "Invalid transition", code: "INVALID_TRANSITION" }`

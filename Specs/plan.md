@@ -21,14 +21,16 @@
 
 **Goal:** All types, Zod schemas, constants, and the `computeTotals` pure function are defined and tested.
 
-1. Write `shared/types.ts`: `InvoiceStatus`, `PaymentStatus`, `LineItem`, `ActivityEvent`, `Invoice`, `InvoiceListItem` (Omit lineItems/activity/memo), `DerivedTotals`, `AssistantDraft`
-2. Write `shared/schemas.ts`: `LineItemSchema`, `CreateInvoiceSchema`, `UpdateInvoiceSchema` (`.partial()`), `TransitionSchema` (with `.refine` for paidDate), `AssistantParseRequestSchema`
-3. Write `shared/constants.ts`: `KNOWN_ACCOUNT_CODES`, `PAYMENT_TERMS_OPTIONS`, `STATUS_TRANSITIONS` map, `FX_RATES_TO_USD`, `DEFAULT_ACTOR`, `SYSTEM_ACTOR`
+1. Write `shared/types.ts`: `InvoiceStatus`, `PaymentStatus` (`"Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided"` — note: `Overdue` is derived, never stored), `LineItem`, `ActivityEvent`, `Invoice` (includes `amountPaid?: number`), `InvoiceListItem` (Omit lineItems/activity/memo), `DerivedTotals`, `AssistantDraft`
+2. Write `shared/schemas.ts`: `LineItemSchema`, `CreateInvoiceSchema` (includes `amountPaid: z.number().min(0).optional()`), `UpdateInvoiceSchema` (`.partial()`), `TransitionSchema` (with `.superRefine` for two validations: `paidDate` required for `recordPayment`; `amountPaid` required for `recordPartialPayment`; action enum includes `"recordPartialPayment"`), `AssistantParseRequestSchema`
+3. Write `shared/constants.ts`: `KNOWN_ACCOUNT_CODES`, `PAYMENT_TERMS_OPTIONS`, `STATUS_TRANSITIONS` map (includes `Partial: ["recordPayment", "void"]` and `Sent` includes `"recordPartialPayment"`), `FX_RATES_TO_USD`, `DEFAULT_ACTOR`, `SYSTEM_ACTOR`
 4. Write `server/src/lib/totals.ts`: `computeTotals(lineItems, discount, taxRate): DerivedTotals` — subtotal, discounted, tax, total
 5. **[TEST]** Write `client/src/test/unit/totals.test.ts`: zero items, zero tax, discount > subtotal, large decimal quantities (1,480,000 events × $0.012), rounding edge cases
 6. **[TEST]** Write `client/src/test/unit/schemas.test.ts`: valid `CreateInvoiceSchema` passes; missing required fields fail with correct field-level errors; `TransitionSchema` refine fires when action=recordPayment and paidDate absent
 
 > **Note:** The project is ESM-only. Set `"type": "module"` in both `server/package.json` and `client/package.json`. Use `import`/`export` everywhere — no `require()`. This is the correct approach for `nanoid` v4+ and aligns with `module: NodeNext` in `server/tsconfig.json`. Any deps that are CJS-only will need a wrapper or replacement.
+
+> **Overdue is a derived paymentStatus.** Store `Open` in the DB; the service layer computes `Overdue` on read when `dueDate < today && paymentStatus === 'Open'`. Similarly, `Partial` is stored directly in the DB when a partial payment is recorded.
 
 ---
 
@@ -37,7 +39,7 @@
 **Goal:** SQLite DB initializes, seed data loads, Express app runs with error handling.
 
 1. Write `server/src/db/database.ts`: open/create SQLite file at `DB_PATH`, export singleton `db`
-2. Write `server/src/db/schema.ts`: `initializeSchema(db)` — runs `CREATE TABLE IF NOT EXISTS invoices` DDL with all columns including JSON `lineItems` and `activity` columns; creates indexes on `status`, `dueDate`, `updatedAt`
+2. Write `server/src/db/schema.ts`: `initializeSchema(db)` — runs `CREATE TABLE IF NOT EXISTS invoices` DDL with all columns including JSON `lineItems` and `activity` columns, and `amountPaid REAL` (nullable); creates indexes on `status`, `dueDate`, `updatedAt`
 3. Write `server/src/db/seed.ts`: check `COUNT(*)`, if 0 read `invoices.json` from repo root, map to DB rows (serialize lineItems/activity to JSON strings, derive `createdAt`/`updatedAt` from first activity timestamp), insert in a transaction
 4. Write `server/src/middleware/validateBody.ts`: generic Zod middleware factory
 5. Write `server/src/middleware/errorHandler.ts`: 404 handler + final error handler → `{ error, code?, issues? }`
@@ -55,11 +57,11 @@
 
 1. Write `server/src/services/invoiceNumber.ts`: fetch all `invoiceNumber` values, parse numeric suffix as integer (not lexicographic — `"10000" < "9999"` lexicographically), find max, increment, `String(n).padStart(4, '0')`, prefix `INV-{year}-`
 2. Write `server/src/services/invoiceService.ts`:
-   - `listInvoices(includeVoided)` — SELECT all columns except lineItems/activity for list perf; parse JSON for response; filter voided unless flag set; sort by updatedAt DESC; return with meta counts
-   - `getInvoiceById(id)` — SELECT *, parse JSON columns, return full Invoice or null
+   - `listInvoices(includeVoided)` — SELECT all columns except lineItems/activity for list perf; parse JSON for response; filter voided unless flag set; sort by updatedAt DESC; return with meta counts; **compute Overdue on read**: after fetching, if `dueDate < today && paymentStatus === "Open"`, set `paymentStatus` to `"Overdue"` in the returned object
+   - `getInvoiceById(id)` — SELECT *, parse JSON columns, return full Invoice or null; **compute Overdue on read**: same derivation as listInvoices
    - `createInvoice(data, actor)` — generate id (nanoid), call invoiceNumber service, set status/paymentStatus defaults, append first activity event, INSERT
    - `updateInvoice(id, data, actor)` — validate exists, merge fields, append "Updated invoice" activity, UPDATE, return full invoice
-   - `transitionInvoice(id, action, actor, paidDate?)` — validate transition allowed per `STATUS_TRANSITIONS`, build new status/paymentStatus, append descriptive activity event, UPDATE
+   - `transitionInvoice(id, action, actor, paidDate?, amountPaid?)` — validate transition allowed per `STATUS_TRANSITIONS`, build new status/paymentStatus, append descriptive activity event, UPDATE; handle `recordPartialPayment` → set `paymentStatus: "Partial"`, store `amountPaid`
    - `voidInvoice(id, actor)` — convenience wrapper around transitionInvoice with action="void"
 3. Write `server/src/routes/invoices.ts`: wire all 7 endpoints to service methods with `validateBody` middleware on POST/PATCH
 4. Write `server/src/routes/assistant.ts`: stub returning `{ draft: {}, needsReview: [] }` for now
