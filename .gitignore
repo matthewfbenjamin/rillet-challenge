@@ -1,2 +1,7 @@
 .DS_Store
 .claude/
+node_modules
+server/data/
+.env
+client/dist
+dist/
