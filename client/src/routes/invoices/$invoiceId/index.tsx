@@ -4,6 +4,7 @@ import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 import { queryClient } from "../../../lib/queryClient";
 import { invoiceQueryOptions, useInvoice } from "../../../hooks/useInvoice";
+import { getFallbackInvoice } from "../../../lib/fallbackData";
 import { useVoidInvoice } from "../../../hooks/useVoidInvoice";
 import { InvoiceDetailHeader } from "../../../components/invoice-detail/InvoiceDetailHeader";
 import { InvoiceDetailMeta } from "../../../components/invoice-detail/InvoiceDetailMeta";
@@ -15,8 +16,15 @@ import { CurrencyConvertSelect } from "../../../components/invoice-detail/Curren
 import { ConfirmModal } from "../../../components/common/ConfirmModal";
 
 export const Route = createFileRoute("/invoices/$invoiceId/")({
-  loader: ({ params }) =>
-    queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId)),
+  loader: async ({ params }) => {
+    try {
+      await queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId));
+    } catch (err) {
+      if (err instanceof Error && err.message === "NOT_FOUND") throw err;
+      const invoice = await getFallbackInvoice(params.invoiceId);
+      queryClient.setQueryData(invoiceQueryOptions(params.invoiceId).queryKey, invoice);
+    }
+  },
   component: InvoiceDetailPage,
 });
 

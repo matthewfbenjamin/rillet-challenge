@@ -7,10 +7,18 @@ import { InvoiceForm } from "../../../components/invoice-form/InvoiceForm";
 import { invoiceQueryOptions, useInvoice } from "../../../hooks/useInvoice";
 import { useUpdateInvoice } from "../../../hooks/useUpdateInvoice";
 import { queryClient } from "../../../lib/queryClient";
+import { getFallbackInvoice } from "../../../lib/fallbackData";
 
 export const Route = createFileRoute("/invoices/$invoiceId/edit")({
-  loader: ({ params }) =>
-    queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId)),
+  loader: async ({ params }) => {
+    try {
+      await queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId));
+    } catch (err) {
+      if (err instanceof Error && err.message === "NOT_FOUND") throw err;
+      const invoice = await getFallbackInvoice(params.invoiceId);
+      queryClient.setQueryData(invoiceQueryOptions(params.invoiceId).queryKey, invoice);
+    }
+  },
   component: EditInvoicePage,
 });
 
