@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rillet</title>
+    <!-- GitHub Pages SPA redirect: restore path from sessionStorage if set by 404.html -->
+    <script>
+      (function () {
+        var redirect = sessionStorage.getItem("redirect");
+        if (redirect) {
+          sessionStorage.removeItem("redirect");
+          history.replaceState(null, null, redirect);
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/rillet-challenge/assets/index-CSUa6MYA.js"></script>
+    <link rel="stylesheet" crossorigin href="/rillet-challenge/assets/index-CwZfksj9.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
