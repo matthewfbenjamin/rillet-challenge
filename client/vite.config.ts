@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  base: "/invoices",
+  base: "/rillet-challenge/",
   plugins: [react()],
   resolve: {
     alias: {
