@@ -146,7 +146,7 @@ rillet/
 
 ```typescript
 export type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Void";
-// Overdue is derived: never stored in DB; computed on read when dueDate < today && paymentStatus === "Open" or "Partial"
+// Overdue IS stored in the DB. markOverdue() runs at server startup and updates any Open/Partial invoices past their dueDate.
 export type PaymentStatus = "Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided";
 
 export interface LineItem {
@@ -331,7 +331,6 @@ CREATE TABLE IF NOT EXISTS invoices (
   dueDate         TEXT NOT NULL,
   paidDate        TEXT,
   amountPaid      REAL,                                -- nullable; set when recordPartialPayment action is applied
-  -- Overdue is never stored; computed on read when dueDate < today and paymentStatus is Open or Partial
   memo            TEXT NOT NULL DEFAULT '',
   taxRate         REAL NOT NULL DEFAULT 0,
   discount        REAL NOT NULL DEFAULT 0,
@@ -360,7 +359,7 @@ voidInvoice(id: string, actor: string): Invoice
 generateInvoiceNumber(): string
 ```
 
-**Overdue derivation:** `listInvoices` and `getInvoiceById` compute `Overdue` on read. After fetching rows from the DB, if `dueDate < today && paymentStatus === "Open"`, the service sets `paymentStatus` to `"Overdue"` in the returned object before returning it. `"Overdue"` is never written to the DB column.
+**Overdue handling:** `Overdue` is stored in the DB. `markOverdue()` runs at server startup after seeding — it scans for any `Open` or `Partial` invoices whose `dueDate < today`, updates their `paymentStatus` to `"Overdue"`, and appends a "Marked invoice overdue" activity event with `SYSTEM_ACTOR`. This means the DB is always accurate on startup; no derivation needed on read.
 
 Activity is always appended, never replaced. On every mutation, the service reads the existing `activity` array, pushes a new `ActivityEvent` (nanoid id, current ISO timestamp, actor, descriptive action string), and writes back the full JSON column.
 

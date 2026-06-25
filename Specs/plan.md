@@ -21,7 +21,7 @@
 
 **Goal:** All types, Zod schemas, constants, and the `computeTotals` pure function are defined and tested.
 
-1. Write `shared/types.ts`: `InvoiceStatus`, `PaymentStatus` (`"Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided"` — note: `Overdue` is derived, never stored), `LineItem`, `ActivityEvent`, `Invoice` (includes `amountPaid?: number`), `InvoiceListItem` (Omit lineItems/activity/memo), `DerivedTotals`, `AssistantDraft`
+1. Write `shared/types.ts`: `InvoiceStatus`, `PaymentStatus` (`"Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided"` — `Overdue` IS stored in the DB; set by `markOverdue()` at startup), `LineItem`, `ActivityEvent`, `Invoice` (includes `amountPaid?: number`), `InvoiceListItem` (Omit lineItems/activity/memo), `DerivedTotals`, `AssistantDraft`
 2. Write `shared/schemas.ts`: `LineItemSchema`, `CreateInvoiceSchema` (includes `amountPaid: z.number().min(0).optional()`), `UpdateInvoiceSchema` (`.partial()`), `TransitionSchema` (with `.superRefine` for two validations: `paidDate` required for `recordPayment`; `amountPaid` required for `recordPartialPayment`; action enum includes `"recordPartialPayment"`), `AssistantParseRequestSchema`
 3. Write `shared/constants.ts`: `KNOWN_ACCOUNT_CODES`, `PAYMENT_TERMS_OPTIONS`, `STATUS_TRANSITIONS` map (includes `Partial: ["recordPayment", "void"]` and `Sent` includes `"recordPartialPayment"`), `FX_RATES_TO_USD`, `DEFAULT_ACTOR`, `SYSTEM_ACTOR`
 4. Write `server/src/lib/totals.ts`: `computeTotals(lineItems, discount, taxRate): DerivedTotals` — subtotal, discounted, tax, total
@@ -30,7 +30,7 @@
 
 > **Note:** The project is ESM-only. Set `"type": "module"` in both `server/package.json` and `client/package.json`. Use `import`/`export` everywhere — no `require()`. This is the correct approach for `nanoid` v4+ and aligns with `module: NodeNext` in `server/tsconfig.json`. Any deps that are CJS-only will need a wrapper or replacement.
 
-> **Overdue is a derived paymentStatus.** Store `Open` in the DB; the service layer computes `Overdue` on read when `dueDate < today && paymentStatus === 'Open'`. Similarly, `Partial` is stored directly in the DB when a partial payment is recorded.
+> **Overdue is stored in the DB.** `markOverdue()` runs at server startup after seeding — it scans for `Open`/`Partial` invoices past their `dueDate`, sets `paymentStatus = 'Overdue'`, and appends a system activity event. No derivation on read needed.
 
 ---
 
@@ -44,7 +44,8 @@
 4. Write `server/src/middleware/validateBody.ts`: generic Zod middleware factory
 5. Write `server/src/middleware/errorHandler.ts`: 404 handler + final error handler → `{ error, code?, issues? }`
 6. Write `server/src/app.ts`: Express factory — JSON middleware, CORS (dev), mount routers (stubs for now), error handler
-7. Write `server/src/index.ts`: call `initializeSchema`, `seed`, start listening on PORT
+7. Write `server/src/index.ts`: call `initializeSchema`, `seed`, `markOverdue`, start listening on PORT
+7a. Write `server/src/lib/markOverdue.ts`: scan for `Open`/`Partial` invoices past `dueDate`, update to `Overdue`, append system activity event
 8. Verify: `tsx src/index.ts` starts cleanly, DB file created, seed data queryable via `sqlite3` CLI
 
 > **Gotcha:** `better-sqlite3` is synchronous — never use it inside async middleware. All DB calls are blocking; that's intentional and correct for this use case.
@@ -57,8 +58,8 @@
 
 1. Write `server/src/services/invoiceNumber.ts`: fetch all `invoiceNumber` values, parse numeric suffix as integer (not lexicographic — `"10000" < "9999"` lexicographically), find max, increment, `String(n).padStart(4, '0')`, prefix `INV-{year}-`
 2. Write `server/src/services/invoiceService.ts`:
-   - `listInvoices(includeVoided)` — SELECT all columns except lineItems/activity for list perf; parse JSON for response; filter voided unless flag set; sort by updatedAt DESC; return with meta counts; **compute Overdue on read**: after fetching, if `dueDate < today && paymentStatus === "Open"`, set `paymentStatus` to `"Overdue"` in the returned object
-   - `getInvoiceById(id)` — SELECT *, parse JSON columns, return full Invoice or null; **compute Overdue on read**: same derivation as listInvoices
+   - `listInvoices(includeVoided)` — SELECT all columns except lineItems/activity for list perf; parse JSON for response; filter voided unless flag set; sort by updatedAt DESC; return with meta counts
+   - `getInvoiceById(id)` — SELECT *, parse JSON columns, return full Invoice or null
    - `createInvoice(data, actor)` — generate id (nanoid), call invoiceNumber service, set status/paymentStatus defaults, append first activity event, INSERT
    - `updateInvoice(id, data, actor)` — validate exists, merge fields, append "Updated invoice" activity, UPDATE, return full invoice
    - `transitionInvoice(id, action, actor, paidDate?, amountPaid?)` — validate transition allowed per `STATUS_TRANSITIONS`, build new status/paymentStatus, append descriptive activity event, UPDATE; handle `recordPartialPayment` → set `paymentStatus: "Partial"`, store `amountPaid`
