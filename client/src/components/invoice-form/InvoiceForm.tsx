@@ -14,6 +14,7 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "@tanstack/react-router";
+import { nanoid } from "nanoid";
 import type { z } from "zod";
 import { CreateInvoiceSchema } from "~shared/schemas";
 import { PAYMENT_TERMS_OPTIONS } from "~shared/constants";
@@ -40,7 +41,7 @@ const EMPTY_DEFAULTS: Partial<FormValues> = {
   taxRate: 0,
   discount: 0,
   memo: "",
-  lineItems: [{ id: "", description: "", quantity: 1, unitPrice: 0, accountCode: "" }],
+  lineItems: [{ id: nanoid(), description: "", quantity: 1, unitPrice: 0, accountCode: "" }],
 };
 
 export function InvoiceForm({
@@ -76,7 +77,7 @@ export function InvoiceForm({
                   label="Invoice Number"
                   {...register("invoiceNumber")}
                   error={errors.invoiceNumber?.message}
-                  readOnly={mode === "edit"}
+                  readOnly={!!defaultValues?.invoiceNumber}
                 />
               </NeedsReviewHighlight>
             </Grid.Col>

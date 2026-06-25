@@ -1,8 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Alert, Button, Center, Divider, Group, Skeleton, Stack, Text } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 import { queryClient } from "../../../lib/queryClient";
 import { invoiceQueryOptions, useInvoice } from "../../../hooks/useInvoice";
+import { useVoidInvoice } from "../../../hooks/useVoidInvoice";
 import { InvoiceDetailHeader } from "../../../components/invoice-detail/InvoiceDetailHeader";
 import { InvoiceDetailMeta } from "../../../components/invoice-detail/InvoiceDetailMeta";
 import { LineItemsTable } from "../../../components/invoice-detail/LineItemsTable";
@@ -10,6 +12,7 @@ import { FinancialsSummary } from "../../../components/invoice-detail/Financials
 import { ActivityLog } from "../../../components/invoice-detail/ActivityLog";
 import { ActionButtons } from "../../../components/invoice-detail/ActionButtons";
 import { CurrencyConvertSelect } from "../../../components/invoice-detail/CurrencyConvertSelect";
+import { ConfirmModal } from "../../../components/common/ConfirmModal";
 
 export const Route = createFileRoute("/invoices/$invoiceId/")({
   loader: ({ params }) =>
@@ -19,8 +22,11 @@ export const Route = createFileRoute("/invoices/$invoiceId/")({
 
 function InvoiceDetailPage() {
   const { invoiceId } = Route.useParams();
+  const navigate = useNavigate();
   const { data: invoice, isLoading, error } = useInvoice(invoiceId);
+  const { mutate: voidInvoice, isPending: isVoiding } = useVoidInvoice(invoiceId);
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
+  const [voidModalOpen, setVoidModalOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -53,8 +59,37 @@ function InvoiceDetailPage() {
 
   const activeCurrency = displayCurrency ?? invoice.currency;
 
+  function handleVoidConfirm() {
+    voidInvoice(undefined, {
+      onSuccess: () => {
+        notifications.show({
+          message: "Invoice voided",
+          color: "orange",
+        });
+        void navigate({ to: "/invoices" });
+      },
+      onError: (err) => {
+        notifications.show({
+          message: err.message,
+          color: "red",
+          title: "Failed to void invoice",
+        });
+        setVoidModalOpen(false);
+      },
+    });
+  }
+
   return (
     <Stack>
+      <ConfirmModal
+        opened={voidModalOpen}
+        title="Void invoice"
+        message={`This will void ${invoice.invoiceNumber} and cannot be undone. The invoice will remain in your records for audit purposes.`}
+        confirmLabel="Void invoice"
+        isLoading={isVoiding}
+        onConfirm={handleVoidConfirm}
+        onCancel={() => setVoidModalOpen(false)}
+      />
       <Group justify="space-between" align="flex-start">
         <Button component={Link} to="/invoices" variant="subtle" size="sm" px={0}>
           ← Invoices
@@ -65,6 +100,16 @@ function InvoiceDetailPage() {
             onChange={setDisplayCurrency}
           />
           <ActionButtons invoice={invoice} />
+          {invoice.status !== "Void" && (
+            <Button
+              variant="outline"
+              color="red"
+              size="sm"
+              onClick={() => setVoidModalOpen(true)}
+            >
+              Void
+            </Button>
+          )}
           <Link to="/invoices/$invoiceId/edit" params={{ invoiceId: invoice.id }}>
             <Button
               variant="default"

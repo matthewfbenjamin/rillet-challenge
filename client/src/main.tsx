@@ -1,9 +1,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MantineProvider, createTheme } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import { routeTree } from "./routeTree.gen";
 import { queryClient } from "./lib/queryClient";
 
@@ -45,6 +47,7 @@ if (!root) throw new Error("Root element not found");
 createRoot(root).render(
   <React.StrictMode>
     <MantineProvider theme={theme}>
+      <Notifications position="top-right" />
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>
