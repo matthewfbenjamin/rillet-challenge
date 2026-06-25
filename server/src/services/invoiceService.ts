@@ -3,6 +3,7 @@ import { db } from "../db/database.js";
 import { generateInvoiceNumber } from "./invoiceNumber.js";
 import { STATUS_TRANSITIONS, DEFAULT_ACTOR } from "~shared/constants.js";
 import type { Invoice, InvoiceListItem, LineItem, ActivityEvent } from "~shared/types.js";
+import { computeTotals } from "../lib/totals.js";
 import type { z } from "zod";
 import type { CreateInvoiceSchema, UpdateInvoiceSchema } from "~shared/schemas.js";
 
@@ -25,15 +26,22 @@ export function listInvoices(includeVoided: boolean): {
   data: InvoiceListItem[];
   meta: { total: number; voided: number };
 } {
-  const allRows = db
+  const rawRows = db
     .prepare(
       `SELECT id, invoiceNumber, customerName, billingEmail, billingAddress, paymentTerms,
-              status, paymentStatus, currency, issueDate, dueDate, paidDate, memo, taxRate,
-              discount, amountPaid, createdAt, updatedAt
+              status, paymentStatus, currency, issueDate, dueDate, paidDate, taxRate,
+              discount, amountPaid, lineItems, createdAt, updatedAt
        FROM invoices
        ORDER BY updatedAt DESC`
     )
-    .all() as InvoiceListItem[];
+    .all() as Array<Omit<InvoiceListItem, "invoiceTotal"> & { lineItems: string }>;
+
+  const allRows: InvoiceListItem[] = rawRows.map((row) => {
+    const lineItems = JSON.parse(row.lineItems) as LineItem[];
+    const { total: invoiceTotal } = computeTotals(lineItems, row.discount, row.taxRate);
+    const { lineItems: _li, ...rest } = row;
+    return { ...rest, invoiceTotal };
+  });
 
   const total = allRows.length;
   const voided = allRows.filter((r) => r.status === "Void").length;

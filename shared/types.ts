@@ -1,5 +1,5 @@
 export type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Void";
-export type PaymentStatus = "Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided"; // Overdue is derived: never stored in DB; computed on read when dueDate < today && paymentStatus === "Open" or "Partial"
+export type PaymentStatus = "Unsent" | "Open" | "Partial" | "Overdue" | "Paid" | "Voided" | "Overdue"; // Overdue is can be set; usually it's computed on read when dueDate < today && paymentStatus === "Open" or "Partial"
 
 export interface LineItem {
   id: string;
@@ -46,7 +46,9 @@ export interface DerivedTotals {
   total: number;
 }
 
-export type InvoiceListItem = Omit<Invoice, "lineItems" | "activity" | "memo">;
+export type InvoiceListItem = Omit<Invoice, "lineItems" | "activity" | "memo"> & {
+  invoiceTotal: number;
+};
 
 export interface AssistantDraft {
   draft: Partial<Omit<Invoice, "id" | "status" | "paymentStatus" | "createdAt" | "updatedAt" | "activity">>;
