@@ -1,10 +1,105 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Alert, Button, Center, Divider, Group, Skeleton, Stack, Text } from "@mantine/core";
+import { useState } from "react";
+import { queryClient } from "../../../lib/queryClient";
+import { invoiceQueryOptions, useInvoice } from "../../../hooks/useInvoice";
+import { InvoiceDetailHeader } from "../../../components/invoice-detail/InvoiceDetailHeader";
+import { InvoiceDetailMeta } from "../../../components/invoice-detail/InvoiceDetailMeta";
+import { LineItemsTable } from "../../../components/invoice-detail/LineItemsTable";
+import { FinancialsSummary } from "../../../components/invoice-detail/FinancialsSummary";
+import { ActivityLog } from "../../../components/invoice-detail/ActivityLog";
+import { ActionButtons } from "../../../components/invoice-detail/ActionButtons";
+import { CurrencyConvertSelect } from "../../../components/invoice-detail/CurrencyConvertSelect";
 
 export const Route = createFileRoute("/invoices/$invoiceId/")({
+  loader: ({ params }) =>
+    queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId)),
   component: InvoiceDetailPage,
 });
 
 function InvoiceDetailPage() {
   const { invoiceId } = Route.useParams();
-  return <div>Invoice Detail: {invoiceId} (coming in Phase 7)</div>;
+  const { data: invoice, isLoading, error } = useInvoice(invoiceId);
+  const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <Stack>
+        <Skeleton height={32} width={200} />
+        <Skeleton height={20} width={160} />
+        <Skeleton height={120} mt="md" />
+        <Skeleton height={80} mt="md" />
+      </Stack>
+    );
+  }
+
+  if (error || !invoice) {
+    const is404 = error?.message === "NOT_FOUND";
+    return (
+      <Center py={80}>
+        <Stack align="center" gap="md">
+          <Alert color="red" title={is404 ? "Invoice not found" : "Failed to load invoice"}>
+            {is404
+              ? "This invoice doesn't exist or may have been removed."
+              : "Something went wrong. Please try again."}
+          </Alert>
+          <Button component={Link} to="/invoices" variant="subtle">
+            Back to invoices
+          </Button>
+        </Stack>
+      </Center>
+    );
+  }
+
+  const activeCurrency = displayCurrency ?? invoice.currency;
+
+  return (
+    <Stack>
+      <Group justify="space-between" align="flex-start">
+        <Button component={Link} to="/invoices" variant="subtle" size="sm" px={0}>
+          ← Invoices
+        </Button>
+        <Group gap="sm">
+          <CurrencyConvertSelect
+            value={activeCurrency}
+            onChange={setDisplayCurrency}
+          />
+          <ActionButtons invoice={invoice} />
+          <Link to="/invoices/$invoiceId/edit" params={{ invoiceId: invoice.id }}>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={invoice.status === "Void"}
+            >
+              Edit
+            </Button>
+          </Link>
+        </Group>
+      </Group>
+
+      <InvoiceDetailHeader invoice={invoice} />
+      <Divider />
+      <InvoiceDetailMeta invoice={invoice} displayCurrency={activeCurrency} />
+      <Divider />
+      <LineItemsTable
+        lineItems={invoice.lineItems}
+        currency={invoice.currency}
+        displayCurrency={activeCurrency}
+      />
+      <FinancialsSummary invoice={invoice} displayCurrency={activeCurrency} />
+      {invoice.memo && (
+        <>
+          <Divider />
+          <Stack gap={4}>
+            <Text fz="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.05em" }}>
+              Memo
+            </Text>
+            <Text fz="sm">{invoice.memo}</Text>
+          </Stack>
+        </>
+      )}
+      <Divider />
+      <ActivityLog activity={invoice.activity} />
+    </Stack>
+  );
 }
