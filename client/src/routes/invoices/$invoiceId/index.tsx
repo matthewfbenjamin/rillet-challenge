@@ -20,8 +20,8 @@ export const Route = createFileRoute("/invoices/$invoiceId/")({
     try {
       await queryClient.ensureQueryData(invoiceQueryOptions(params.invoiceId));
     } catch (err) {
-      if (err instanceof Error && err.message === "NOT_FOUND") throw err;
       const invoice = await getFallbackInvoice(params.invoiceId);
+      if (!invoice) throw err;
       queryClient.setQueryData(invoiceQueryOptions(params.invoiceId).queryKey, invoice);
     }
   },
